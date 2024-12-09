@@ -26,14 +26,14 @@ import (
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
-var _ resource.Resource = &TrackSelfDescribingEventResource{}
-var _ resource.ResourceWithConfigure = &TrackSelfDescribingEventResource{}
+var _ resource.Resource = &trackSelfDescribingEventResource{}
+var _ resource.ResourceWithConfigure = &trackSelfDescribingEventResource{}
 
-type TrackSelfDescribingEventResource struct {
-	providerContext *SnowplowProviderModel
+type trackSelfDescribingEventResource struct {
+	providerContext *ResourceData
 }
 
-type TrackSelfDescribingEventResourceModel struct {
+type trackSelfDescribingEventResourceModel struct {
 	ID                 types.String `tfsdk:"id"`
 	CreateEvent        types.Map    `tfsdk:"create_event"`
 	UpdateEvent        types.Map    `tfsdk:"update_event"`
@@ -48,14 +48,14 @@ type TrackSelfDescribingEventResourceModel struct {
 }
 
 func NewTrackSelfDescribingEventResource() resource.Resource {
-	return &TrackSelfDescribingEventResource{}
+	return &trackSelfDescribingEventResource{}
 }
 
-func (r *TrackSelfDescribingEventResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *trackSelfDescribingEventResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_track_self_describing_event"
 }
 
-func (r *TrackSelfDescribingEventResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *trackSelfDescribingEventResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Emits an event to the configured collector upon creation, update, or deletion of the resource.",
 		Attributes: map[string]schema.Attribute{
@@ -114,18 +114,18 @@ func (r *TrackSelfDescribingEventResource) Schema(ctx context.Context, req resou
 	}
 }
 
-func (r *TrackSelfDescribingEventResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *trackSelfDescribingEventResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
 		return
 	}
 
-	providerCtx, ok := req.ProviderData.(SnowplowProviderModel)
+	providerCtx, ok := req.ProviderData.(ResourceData)
 
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected SnowplowProviderModel, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected ResourceData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 
 		return
@@ -134,14 +134,14 @@ func (r *TrackSelfDescribingEventResource) Configure(ctx context.Context, req re
 	r.providerContext = &providerCtx
 }
 
-func (r *TrackSelfDescribingEventResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan TrackSelfDescribingEventResourceModel
+func (r *trackSelfDescribingEventResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan trackSelfDescribingEventResourceModel
 
 	if resp.Diagnostics.Append((req.Plan.Get(ctx, &plan))...); resp.Diagnostics.HasError() {
 		return
 	}
 
-	if err := trackSelfDescribingEvent(r.providerContext, plan, plan.CreateEvent); err != nil {
+	if err := trackSelfDescribingEvent(r.providerContext.SnowplowProviderModel, plan, plan.CreateEvent); err != nil {
 		resp.Diagnostics.AddError("Error tracking event", err.Error())
 		return
 	}
@@ -153,8 +153,8 @@ func (r *TrackSelfDescribingEventResource) Create(ctx context.Context, req resou
 	resp.State.SetAttribute(ctx, path.Root("id"), getUUID())
 }
 
-func (r *TrackSelfDescribingEventResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state TrackSelfDescribingEventResourceModel
+func (r *trackSelfDescribingEventResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state trackSelfDescribingEventResourceModel
 
 	resp.Diagnostics.Append((req.State.Get(ctx, &state))...)
 
@@ -162,7 +162,7 @@ func (r *TrackSelfDescribingEventResource) Delete(ctx context.Context, req resou
 		return
 	}
 
-	err := trackSelfDescribingEvent(r.providerContext, state, state.DeleteEvent)
+	err := trackSelfDescribingEvent(r.providerContext.SnowplowProviderModel, state, state.DeleteEvent)
 
 	if err != nil {
 		resp.Diagnostics.AddError("Error tracking event", err.Error())
@@ -170,17 +170,17 @@ func (r *TrackSelfDescribingEventResource) Delete(ctx context.Context, req resou
 	}
 }
 
-func (r *TrackSelfDescribingEventResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+func (r *trackSelfDescribingEventResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 }
 
-func (r *TrackSelfDescribingEventResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan TrackSelfDescribingEventResourceModel
+func (r *trackSelfDescribingEventResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan trackSelfDescribingEventResourceModel
 
 	if resp.Diagnostics.Append((req.Plan.Get(ctx, &plan))...); resp.Diagnostics.HasError() {
 		return
 	}
 
-	if err := trackSelfDescribingEvent(r.providerContext, plan, plan.UpdateEvent); err != nil {
+	if err := trackSelfDescribingEvent(r.providerContext.SnowplowProviderModel, plan, plan.UpdateEvent); err != nil {
 		resp.Diagnostics.AddError("Error tracking event", err.Error())
 		return
 	}
@@ -192,7 +192,7 @@ func (r *TrackSelfDescribingEventResource) Update(ctx context.Context, req resou
 	resp.State.SetAttribute(ctx, path.Root("id"), getUUID())
 }
 
-func trackSelfDescribingEvent(providerCtx *SnowplowProviderModel, resourceCtx TrackSelfDescribingEventResourceModel, lifecycleEventMap types.Map) error {
+func trackSelfDescribingEvent(providerCtx *SnowplowProviderModel, resourceCtx trackSelfDescribingEventResourceModel, lifecycleEventMap types.Map) error {
 	trackerChan := make(chan int, 1)
 	tracker, err := InitTracker(*providerCtx, resourceCtx, trackerChan)
 	if err != nil {
@@ -205,7 +205,7 @@ func trackSelfDescribingEvent(providerCtx *SnowplowProviderModel, resourceCtx Tr
 		if entity, ok := elem.(types.Map); ok {
 			contextList = append(contextList, entity)
 		} else {
-			return errors.New("All contexts values must be maps")
+			return errors.New("all contexts values must be maps")
 		}
 	}
 

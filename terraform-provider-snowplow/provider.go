@@ -16,6 +16,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -24,6 +25,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	gt "github.com/snowplow/snowplow-golang-tracker/v2/tracker"
+
+	"github.com/snowplow-devops/terraform-provider-snowplow/terraform-provider-snowplow/console"
 )
 
 // Ensure ScaffoldingProvider satisfies various provider interfaces.
@@ -37,6 +40,10 @@ type SnowplowProviderModel struct {
 	TrackerPlatform    types.String `tfsdk:"tracker_platform"`
 	EmitterRequestType types.String `tfsdk:"emitter_request_type"`
 	EmitterProtocol    types.String `tfsdk:"emitter_protocol"`
+	ConsoleAPIEndpoint types.String `tfsdk:"console_api_endpoint"`
+	ConsoleAPIKeyID    types.String `tfsdk:"console_api_key_id"`
+	ConsoleAPIKey      types.String `tfsdk:"console_api_key"`
+	ConsoleOrgID       types.String `tfsdk:"console_organization_id"`
 }
 
 // SnowplowProvider defines the provider implementation.
@@ -45,6 +52,15 @@ type SnowplowProvider struct {
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
 	version string
+}
+
+type ResourceData struct {
+	*SnowplowProviderModel
+	*console.ApiClient
+}
+
+func (r ResourceData) GetApiClient() *console.ApiClient {
+	return r.ApiClient
 }
 
 func NewProvider(version string) func() provider.Provider {
@@ -92,6 +108,26 @@ func (p *SnowplowProvider) Schema(ctx context.Context, req provider.SchemaReques
 				Required:    false,
 				Description: "Whether to use HTTP or HTTPS to send events",
 			},
+			"console_api_endpoint": schema.StringAttribute{
+				Optional:    true,
+				Required:    false,
+				Description: "API endpoint hostname to use when interacting with the Console API",
+			},
+			"console_api_key_id": schema.StringAttribute{
+				Optional:    true,
+				Required:    false,
+				Description: "Auth API v3 API Key ID to access the Console API with",
+			},
+			"console_api_key": schema.StringAttribute{
+				Optional:    true,
+				Required:    false,
+				Description: "Auth API v2/v3 API Key to access the Console API with",
+			},
+			"console_organization_id": schema.StringAttribute{
+				Optional:    true,
+				Required:    false,
+				Description: "Organization ID associated with the console_api_key credentials",
+			},
 		},
 	}
 }
@@ -105,6 +141,8 @@ func (p *SnowplowProvider) Configure(ctx context.Context, req provider.Configure
 		return
 	}
 
+	// For sending events
+
 	if data.EmitterRequestType.ValueString() == "" {
 		data.EmitterRequestType = types.StringValue("POST")
 	}
@@ -115,8 +153,51 @@ func (p *SnowplowProvider) Configure(ctx context.Context, req provider.Configure
 		data.TrackerPlatform = types.StringValue("srv")
 	}
 
-	resp.DataSourceData = data
-	resp.ResourceData = data
+	// Console interactions
+
+	// Mostly only useful for testing with next.console
+	if data.ConsoleAPIEndpoint.ValueString() == "" {
+		data.ConsoleAPIEndpoint = types.StringValue("console.snowplowanalytics.com")
+	}
+
+	// As used by Snowtype: https://docs.snowplow.io/docs/collecting-data/code-generation/using-the-cli/#authenticating-with-the-console
+	if data.ConsoleAPIKey.ValueString() == "" {
+		data.ConsoleAPIKey = types.StringValue(os.Getenv("SNOWPLOW_CONSOLE_API_KEY"))
+	}
+	if data.ConsoleAPIKeyID.ValueString() == "" {
+		data.ConsoleAPIKeyID = types.StringValue(os.Getenv("SNOWPLOW_CONSOLE_API_KEY_ID"))
+	}
+
+	// No precedent, but consistent convention
+	if data.ConsoleOrgID.ValueString() == "" {
+		data.ConsoleOrgID = types.StringValue(os.Getenv("SNOWPLOW_CONSOLE_ORGANIZATION_ID"))
+	}
+
+	// TODO: Fallback to snowplow-cli config: https://github.com/snowplow-product/snowplow-cli?tab=readme-ov-file#configuration
+
+	// Console Auth
+	var client *console.ApiClient
+
+	if data.ConsoleAPIKey.ValueString() != "" {
+		newClient, err := console.NewApiClient(
+			ctx,
+			version,
+			data.ConsoleAPIEndpoint.ValueString(),
+			data.ConsoleAPIKeyID.ValueString(),
+			data.ConsoleAPIKey.ValueString(),
+			data.ConsoleOrgID.ValueString(),
+		)
+
+		if err != nil {
+			resp.Diagnostics.AddError("error authenticating with snowplow console api", err.Error())
+		}
+
+		client = newClient
+	}
+
+	rd := ResourceData{&data, client}
+	resp.DataSourceData = rd
+	resp.ResourceData = rd
 }
 
 func (p *SnowplowProvider) Resources(ctx context.Context) []func() resource.Resource {
@@ -126,12 +207,18 @@ func (p *SnowplowProvider) Resources(ctx context.Context) []func() resource.Reso
 }
 
 func (p *SnowplowProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		console.NewOrganizationDataSource,
+		console.NewUserDataSource,
+		console.NewUsersDataSource,
+		console.NewPipelineDataSource,
+		console.NewPipelinesDataSource,
+	}
 }
 
 // InitTracker takes a context and a channel of size 1 and returns
 // a new Snowplow Tracker ready to create a resource
-func InitTracker(ctx SnowplowProviderModel, ctxResource TrackSelfDescribingEventResourceModel, trackerChan chan int) (*gt.Tracker, error) {
+func InitTracker(ctx SnowplowProviderModel, ctxResource trackSelfDescribingEventResourceModel, trackerChan chan int) (*gt.Tracker, error) {
 	var collectorUri, emitterRequestType, emitterProtocol, trackerNamespace, trackerAppId, trackerPlatform string
 
 	if ctxResource.CollectorURI.ValueString() == "" {

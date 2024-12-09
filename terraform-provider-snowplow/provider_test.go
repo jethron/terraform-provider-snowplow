@@ -24,6 +24,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var testProviderFactory = map[string]func() (tfprotov5.ProviderServer, error){
+	"snowplow": providerserver.NewProtocol5WithError(NewProvider("dev")()),
+}
+
 func TestInitTracker(t *testing.T) {
 	assert := assert.New(t)
 
@@ -36,7 +40,7 @@ func TestInitTracker(t *testing.T) {
 		EmitterRequestType: types.StringValue("GET"),
 		EmitterProtocol:    types.StringValue("HTTP"),
 	}
-	ctxR := TrackSelfDescribingEventResourceModel{
+	ctxR := trackSelfDescribingEventResourceModel{
 		CollectorURI:       types.StringValue(""),
 		TrackerAppID:       types.StringValue(""),
 		TrackerNamespace:   types.StringValue(""),
@@ -64,7 +68,7 @@ func TestInitTracker_WithOverrides(t *testing.T) {
 		EmitterRequestType: types.StringValue("GET"),
 		EmitterProtocol:    types.StringValue("HTTP"),
 	}
-	ctxR := TrackSelfDescribingEventResourceModel{
+	ctxR := trackSelfDescribingEventResourceModel{
 		CollectorURI:       types.StringValue("com.acme.override"),
 		TrackerAppID:       types.StringValue(""),
 		TrackerNamespace:   types.StringValue(""),
@@ -92,7 +96,7 @@ func TestInitTracker_WithEmptyCollectorURI(t *testing.T) {
 		EmitterRequestType: types.StringValue("GET"),
 		EmitterProtocol:    types.StringValue("HTTP"),
 	}
-	ctxR := TrackSelfDescribingEventResourceModel{
+	ctxR := trackSelfDescribingEventResourceModel{
 		CollectorURI:       types.StringValue(""),
 		TrackerAppID:       types.StringValue(""),
 		TrackerNamespace:   types.StringValue(""),
@@ -148,10 +152,8 @@ func TestResource_UpgradeFromVersion(t *testing.T) {
 				),
 			},
 			{
-				ProtoV5ProviderFactories: map[string]func() (tfprotov5.ProviderServer, error){
-					"snowplow": providerserver.NewProtocol5WithError(NewProvider("dev")()),
-				},
-				Config: config,
+				ProtoV5ProviderFactories: testProviderFactory,
+				Config:                   config,
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction(
